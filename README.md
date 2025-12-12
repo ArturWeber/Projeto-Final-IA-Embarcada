@@ -50,7 +50,7 @@ Abaixo segue a explicação detalhada de cada arquivo presente neste projeto:
 
 -----
 
-## 🚀 Como Executar
+## Como Executar
 
 ### Pré-requisitos
 
