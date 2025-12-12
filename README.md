@@ -1,105 +1,193 @@
-# Projeto-Final-IA-Embarcada
-Neural Network Warm-Start for Online Model Predictive Control (MPC). Final project for the Embedded AI course at USP. Accelerates solver convergence for real-time applications.
+# Neural Network Warm-Start for MPC - Projeto de IA Embarcada
 
+Este repositório contém a implementação de um sistema de controle híbrido para um veículo aéreo não tripulado (VANT/Drone). O projeto utiliza uma Rede Neural Profunda (DNN) para fornecer um "chute inicial" (*Warm Start*) a um controlador preditivo (MPC), visando acelerar a convergência e viabilizar a execução em hardware embarcado limitado (Raspberry Pi 4B).
 
-# README - Análise de Pré-Processamento e Loss para Problemas MPC em Controle de Quadrirrotor
+## Estrutura do Repositório e Descrição dos Arquivos
 
-Este diretório contém os códigos e notebooks de análise focados na metodologia de aprendizado de máquina para otimização de Problemas de Otimização Quadrática (QP) em contextos de Controle Preditivo Baseado em Modelo (MPC). O objetivo principal é desenvolver e avaliar uma Rede Neural (PlannerNet) para fornecer uma estimativa inicial (Warm Start) da variável de decisão ótima (primal, $z$) a um solucionador de primal active set online.
+Abaixo segue a explicação detalhada de cada arquivo presente neste projeto:
 
-Este projeto replica e estende a metodologia apresentada em "Large Scale Model Predictive Control with Neural Networks and Primal Active Sets" e é aplicado ao controle preditivo de um quadrirrotor em ambiente de simulação para pouso em plataforma oscilante.
+### 1\. Geração de Dados e Controle Clássico
 
----
+  * **`mpc_explicit_controller.ipynb`**:
+      * **Função:** Atua como o "Professor". Este notebook implementa a simulação dinâmica do drone e o controlador MPC clássico (usando solvers de otimização convexos como `cvxpy` ou `osqp`).
+      * **Propósito:** Gera o *dataset* de treinamento (Ground Truth). Ele simula diversas trajetórias e salva os pares `(estado_atual, controle_otimo)` e `(estado_atual, primal_z)` que a rede neural tentará aprender.
 
-## 1. Configuração e Dependências
+### 2\. Desenvolvimento da IA
 
-Os códigos dependem de bibliotecas comuns de cálculo científico e aprendizado profundo, incluindo **torch (PyTorch)**.
+  * **`desenvolvModelo.ipynb`**:
+      * **Função:** Atua como o "Aluno". É o notebook principal de *Deep Learning*.
+      * **Propósito:**
+        1.  Carrega e pré-processa os dados gerados.
+        2.  Define a arquitetura da Rede Neural (MLP).
+        3.  Implementa a função de perda customizada (`QPLoss`) que penaliza violações de restrição.
+        4.  Treina o modelo e exporta o resultado final para o formato `.onnx`.
+      * **Saída:** Gera os arquivos `modelo.onnx`.
 
-Para instalar as dependências, geralmente é utilizado um arquivo `requirements.txt`
-O setup inicial define sementes (seeds) para reprodutibilidade usando **random**, **numpy** e **torch**.
+### 3\. Modelos Treinados
 
----
+  * **`modelo.onnx`**: O arquivo binário contendo a rede neural treinada exportada via PyTorch. É este arquivo que o sistema embarcado lê.
+  * **`modelo_fixed.onnx`**: Uma versão do modelo pós-processada, geralmente onde foram aplicadas otimizações de grafo ou correções de metadados para compatibilidade com certas versões do *runtime*.
+  * **`modelo.onnx.data`**: Arquivo auxiliar de pesos (geralmente gerado se o modelo for muito grande para um único arquivo protobuf, embora neste projeto sirva como artefato da exportação).
 
-## 2. Estrutura do Problema MPC e Pré-processamento
+### 4\. Scripts de Execução e Teste (Python)
 
-O código manipula instâncias de um problema MPC, que é um Problema de Otimização Quadrática (QP), carregado a partir de um arquivo `.npz` (`states_with_bounds.npz`).  
-A classe **MPC_Problem** lida com o carregamento e verificação das dimensões do problema, incluindo:
+  * **`main.py`**:
+      * **Função:** Script de automação geral.
+      * **Propósito:** Serve como um *driver* para rodar inferências de teste ou integrar os módulos em Python. Pode ser usado para validar se o ambiente possui todas as dependências funcionando.
+  * **`rodarMulticoreGraphopt.py`**:
+      * **Função:** Benchmark específico de configurações do ONNX Runtime.
+      * **Propósito:** Testa a inferência da rede variando o número de threads (Single Core vs Multi Core) e os níveis de otimização de grafo (Graph Optimization Level). Gera estatísticas de latência para análise de desempenho.
 
-- Número de estados (n_states) e atuações (n_actuations).
-- Horizonte de predição (n_horizon).
-- Dimensão da variável de decisão ($z$) (dim_z).
-- Matrizes QP: $P$ (matriz quadrática), $q$ (vetor linear).
-- Matrizes de Restrição: $C$ (igualdade), $U$ (desigualdade), e $D = [C; U]$.
-- Variáveis Duais ($\lambda$, $\nu$) e limites de restrição ($z_{inf}$, $z_{sup}$).
+### 5\. Benchmarking em C (Hardware Nativo)
 
-### Pré-processamento Aplicado
+  * **`benchmark.c`**:
+      * **Função:** Teste de estresse em baixo nível.
+      * **Propósito:** Escrito em C puro, este código carrega o modelo ONNX usando a *C API* do ONNX Runtime. Ele é crucial para medir a latência real na Raspberry Pi, sem o *overhead* do interpretador Python. Utiliza `clock_gettime` para precisão de microssegundos.
 
-Para melhorar a condicionalidade do problema e estabilizar o treinamento da rede, diversas transformações são aplicadas:
+### 6\. Configuração
 
-- **Padronização do Estado Inicial (State Standardization):**  
-  $x' = (x - x_{mean}) / x_{std}$.
+  * **`requirements.txt`**: Lista de bibliotecas Python necessárias (PyTorch, ONNX, ONNX Runtime, NumPy, Matplotlib, etc.).
 
-- **Padronização da Variável de Decisão (Primal Standardization):**  
-  $z' = (z - z_{mean}) / z_{std}$, com propagação das transformações para $D$, $a$ e $b$.
+-----
 
-- **Escalonamento dos Duais (Duals Scaling):**  
-  Duais são normalizados pelo desvio padrão para equilibrar termos do Lagrangiano.
+## 🚀 Como Executar
 
-- **Regularização de Tikhonov:**  
-  Adição de $\gamma I$ à matriz $P$ para garantir positividade definida e reduzir número de condição.
+### Pré-requisitos
 
----
+Instale as dependências Python:
 
-## 3. Arquitetura da Rede e Funções de Loss
+```bash
+pip install -r requirements.txt
+```
 
-### PlannerNet (Rede Neural)
+### Passo 1: Gerar Dados
 
-A PlannerNet é uma MLP simples que recebe o estado padronizado ($x_{std}$) e retorna $z_{scaled}$.  
-Usa ReLU como ativação e camadas ocultas (ex.: 64, 64 ou 128, 128), ajustadas via Grid Search.
+Abra e execute todas as células do `mpc_explicit_controller.ipynb`. Isso criará os arquivos de dados (ex: `.csv` ou `.pt`) necessários para o treino.
 
-### Funções de Loss
+### Passo 2: Treinar a Rede
 
-Foram definidas e validadas diferentes funções de perda:
+Abra e execute o `desenvolvModelo.ipynb`. Certifique-se de que ele está apontando para os dados gerados no passo anterior. Ao final, ele salvará o arquivo `modelo.onnx`.
 
-- **LagrangianLoss** e **AugmentedLagrangianLoss:**  
-  Baseadas na diferença entre Lagrangiano predito e ótimo.  
-  A versão aumentada adiciona penalidade $\rho/2$ por violação das restrições.
+### Passo 3: Testar Inferência (Python)
 
-- **QPLoss:**  
-  Combina MSE do primal com penalização quadrática das violações.  
-  $Loss = MSE(z_{pred}, z_{star}) + \lambda \cdot Penalty(\text{violações})$.
+Para verificar se o modelo roda corretamente e testar opções de otimização:
 
----
+```bash
+python rodarMulticoreGraphopt.py
+```
 
-## 4. Treinamento e Análise de Estabilidade
+### Passo 4: Benchmark em C (Linux/Raspberry Pi)
 
-O treinamento utiliza o dataset pré-processado e a função de perda escolhida.
+Para compilar o benchmark em C, você precisa ter o `libonnxruntime` instalado no sistema.
 
-- **Validação da Loss:** A perda deve ser próxima de zero quando $z_{pred} = z_{opt}$.
-- **Grid Search:** Otimização de hiperparâmetros via validação cruzada K-Fold e Early Stopping.
-- **Instabilidade de Gradiente:** O código monitora norma e direção do gradiente.  
-  Explosões (> $10^3$) foram observadas em épocas específicas, geralmente devido ao termo quadrático da Lagrangiana.
+```bash
+# Exemplo de compilação (ajuste os caminhos conforme sua instalação)
+gcc benchmark.c -o benchmark -lonnxruntime
 
----
+# Executar
+./benchmark
+```
 
-## 5. Otimização e Implementação Embarcada (Deploy)
+-----
 
-O modelo treinado é otimizado para execução em hardware embarcado, como **Raspberry Pi 4B** ou **Aquila AM69**.
+# 📄 Relatório do Projeto: Contexto e Resultados
 
-### Formato de Deploy
+*O texto abaixo descreve a motivação, metodologia e conclusões obtidas durante o desenvolvimento deste projeto na disciplina de Inteligência Artificial Embarcada.*
 
-- Exportação do modelo PyTorch para **ONNX**.
-- Otimização via **ONNX Runtime**, com multithreading.
+## 1\. Contexto e Motivação
 
-### Quantização
+### Contexto do Projeto
 
-- **Quantização Pós-treino Dinâmica INT8** aplicada para reduzir tamanho do modelo.  
-- Observou-se diminuição da latência (0.04173 ms → 0.03293 ms), porém aumento de MSE no Test Set.
+O presente trabalho foi desenvolvido no âmbito da disciplina de Inteligência Artificial Embarcada, visando a aplicação prática de técnicas de aprendizado profundo (*Deep Learning*) em sistemas de controle. O cenário de aplicação escolhido baseia-se em um problema real de robótica aérea: o pouso autônomo de um veículo aéreo não tripulado (VANT), especificamente um quadrotor, em condições adversas, como o pouso em plataformas móveis ou em ambientes marítimos (*automar*).
 
-### Arquitetura de Simulação
+O cenário deriva de uma pesquisa onde a estratégia adotada foi o Controle Preditivo Baseado em Modelo (MPC). O MPC atua como o "cérebro" da aeronave, calculando a cada instante a sequência de ações ótimas. A técnica formula o controle como um problema de otimização matemática (Programação Quadrática - QP). Embora robusto, o MPC é computacionalmente oneroso, especialmente para hardware embarcado.
 
-- Implementada em **C++** com ONNX Runtime multicore.
-- A inclusão da NN (NN + qpOASES) aumentou iterações do solver, sugerindo piora na performance comparado ao uso isolado de qpOASES.
+### Motivação e Desafios de Tempo Real
 
-O estudo final foca na análise das funções de perda e integração com o solver.
+A principal motivação reside no custo computacional proibitivo do MPC. Em robótica aérea, o requisito de tempo real é crítico. Se o *solver* não entregar uma resposta a tempo, o drone pode cair.
 
----
+A abordagem do projeto é utilizar uma **Rede Neural Profunda** para fornecer um *Warm Start* (partida quente) ao *solver*. A hipótese é que a rede, tendo tempo de inferência fixo e determinístico, pode entregar uma solução muito próxima da ótima, reduzindo drasticamente o número de iterações que o *solver* precisa para refinar o resultado.
+
+## 2\. Metodologia e Adaptações
+
+### Visão Geral da Abordagem Híbrida
+
+Baseado no artigo *"Large Scale Model Predictive Control with Neural Networks and Primal Active Sets"*, o projeto combina uma rede neural (treinada offline) com um solucionador *Active Set* (online). A rede mapeia o estado atual ($x$) para uma aproximação das variáveis de otimização ($z$). O solver então utiliza esse $z$ como ponto de partida para garantir a viabilidade e otimalidade finais.
+
+### Adaptações
+
+Para a prova de conceito, simplificamos a abordagem original. Em vez de reescrever um solver QP do zero, acoplamos a rede neural a um solver padrão, focando na eficiência da inferência da rede no hardware alvo (Raspberry Pi 4B) e na validação do *Warm Start*.
+
+## 3\. Método
+
+Durante o desenvolvimento, a versão inicial do método (baseada em perda Lagrangiana complexa) não convergiu adequadamente. Adotou-se então uma abordagem simplificada e robusta.
+
+### Geração de Dados
+
+O problema foi formulado como *Box-constrained Quadratic Programming*. Utilizou-se uma arquitetura SIL (Software-in-the-Loop) para simular o drone, resolver o MPC clássico e coletar dados de: Estado inicial ($x$), Primal ótimo ($z^*$), e limites de restrição.
+
+### Pré-processamento
+
+  * **Normalização:** Aplicou-se *z-score* (média 0, desvio padrão 1) nos dados de entrada para facilitar o treinamento da rede.
+  * **Condicionalidade:** Na versão inicial, tentou-se regularização de Tikhonov e normalização espectral, mas a versão final simplificou o processo focando na normalização dos estados.
+
+### Função de Perda (Loss Function)
+
+A abordagem inicial (**Lagrangian Loss**) falhou; a rede aprendia o valor escalar do custo, mas não o vetor de controle correto.
+
+Desenvolvemos a **QPLoss** (implementada em `desenvolvModelo.ipynb`), que combina:
+
+1.  **MSE (Erro Quadrático Médio):** Força a rede a imitar o controle ótimo ($z^*$).
+2.  **Penalidade de Restrição:** Adiciona um custo proporcional à violação das restrições físicas ($Ax \le b$), agindo como uma *soft constraint*.
+
+<!-- end list -->
+
+```python
+# Conceito da QPLoss
+Loss = ||z_pred - z_star||^2 + lambda * sum(max(0, violação))
+```
+
+### Arquitetura da Rede e Otimização
+
+Utilizou-se uma **MLP (Multilayer Perceptron)** rasa com ativação **ReLU**, ideal para aproximar as funções lineares por partes do MPC explícito.
+
+  * **Modelo Vencedor:** 1 camada oculta com 128 neurônios.
+  * **Resultados de Treino:** MSE de 0.1027 no conjunto de teste. Histograma de erros concentrado em zero.
+
+## 4\. Otimização Computacional e Hardware
+
+### Quantização (INT8)
+
+Tentou-se quantização dinâmica via ONNX Runtime.
+
+  * **Tamanho:** Redução de 250 KB para 50 KB.
+  * **Latência:** Ganho marginal (\~10 $\mu$s).
+  * **Precisão:** O erro MSE triplicou.
+  * **Conclusão:** Não valeu a pena para este caso, pois prejudicou a qualidade do *Warm Start*.
+
+### Multicore vs Single Core
+
+Testes realizados com `benchmark.c` e `rodarMulticoreGraphopt.py`.
+
+  * Para inferências muito rápidas (\~40 $\mu$s), o overhead de paralelização supera o ganho. A execução **Single Core** mostrou-se mais eficiente.
+
+## 5\. Deploy e Validação em Malha Fechada
+
+### Arquitetura de Software
+
+O sistema embarcado foi desenvolvido em C++, integrando:
+
+1.  **Motor de Inferência:** ONNX Runtime carregando `modelo.onnx`.
+2.  **Solver MPC:** Recebe a saída da rede como inicialização.
+3.  **Simulação Dinâmica:** Valida a física do drone.
+
+### Resultados do Deploy
+
+1.  **Validação Funcional (Sucesso):** O drone controlado pela Rede Neural + Solver realizou a trajetória de pouso perfeitamente, sobrepondo-se à curva do controle clássico. O sistema é seguro e funcional.
+2.  **Performance Computacional (Desafio):**
+      * O número de iterações do solver com *Warm Start* (Rede) foi **maior** (\~400 iterações) do que com *Cold Start* (\~50 iterações).
+      * **Diagnóstico:** Embora a rede tenha um MSE baixo (visualmente correto), a solução é "numericamente rugosa". O solver gasta mais tempo projetando a solução "quase ótima" da rede de volta para a viabilidade estrita do que começando do zero.
+
+### Conclusão
+
+O projeto demonstrou com sucesso a viabilidade técnica de rodar IA embarcada para controle complexo na Raspberry Pi. A arquitetura híbrida funciona e controla o drone. O desafio remanescente é refinar a função de perda (voltando à teoria Lagrangiana rigorosa) para alinhar os gradientes da rede com os do solver, transformando a precisão visual em aceleração numérica real.
