@@ -8,7 +8,7 @@ Abaixo segue a explicação detalhada de cada arquivo presente neste projeto:
 
 ### 1\. [Externo] Simulação Dinâmica
 
-  * **`mpc_explicit_controller.ipynb`**:
+  * **Simulação Dinâmica Pouso de Drone**:
       * **Referência:** https://github.com/CarlosCraveiro/landing_quadrotor_on_osc_platforms.
       * **Função:** Atua como simulador dinâmico do sistema.
       * **Propósito:** Fundamentar o treinamento da rede.
