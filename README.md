@@ -6,16 +6,17 @@ Este repositório contém a implementação de um sistema de controle híbrido p
 
 Abaixo segue a explicação detalhada de cada arquivo presente neste projeto:
 
-### 1\. Geração de Dados e Controle Clássico
+### 1\. [Externo] Simulação Dinâmica
 
   * **`mpc_explicit_controller.ipynb`**:
-      * **Função:** Atua como o "Professor". Este notebook implementa a simulação dinâmica do drone e o controlador MPC clássico (usando solvers de otimização convexos como `cvxpy` ou `osqp`).
-      * **Propósito:** Gera o *dataset* de treinamento (Ground Truth). Ele simula diversas trajetórias e salva os pares `(estado_atual, controle_otimo)` e `(estado_atual, primal_z)` que a rede neural tentará aprender.
+      * **Referência:** https://github.com/CarlosCraveiro/landing_quadrotor_on_osc_platforms.
+      * **Função:** Atua como simulador dinâmico do sistema.
+      * **Propósito:** Fundamentar o treinamento da rede.
 
 ### 2\. Desenvolvimento da IA
 
-  * **`desenvolvModelo.ipynb`**:
-      * **Função:** Atua como o "Aluno". É o notebook principal de *Deep Learning*.
+  * **`mpc_explicit_controller.ipynb`**:
+      * **Função:** Define e treina a rede neural, produzindo o modelo final em formato onnx. É o notebook principal de *Deep Learning*.
       * **Propósito:**
         1.  Carrega e pré-processa os dados gerados.
         2.  Define a arquitetura da Rede Neural (MLP).
@@ -60,15 +61,11 @@ Instale as dependências Python:
 pip install -r requirements.txt
 ```
 
-### Passo 1: Gerar Dados
+### Passo 1: Gerar Modelo
 
-Abra e execute todas as células do `mpc_explicit_controller.ipynb`. Isso criará os arquivos de dados (ex: `.csv` ou `.pt`) necessários para o treino.
+Abra e execute o `mpc_explicit_controller.ipynb`. Ao final, ele salvará o arquivo `modelo.onnx`.
 
-### Passo 2: Treinar a Rede
-
-Abra e execute o `desenvolvModelo.ipynb`. Certifique-se de que ele está apontando para os dados gerados no passo anterior. Ao final, ele salvará o arquivo `modelo.onnx`.
-
-### Passo 3: Testar Inferência (Python)
+### Passo 2: Testar Inferência (Python)
 
 Para verificar se o modelo roda corretamente e testar opções de otimização:
 
@@ -76,7 +73,7 @@ Para verificar se o modelo roda corretamente e testar opções de otimização:
 python rodarMulticoreGraphopt.py
 ```
 
-### Passo 4: Benchmark em C (Linux/Raspberry Pi)
+### Passo 3: Benchmark em C (Linux/Raspberry Pi)
 
 Para compilar o benchmark em C, você precisa ter o `libonnxruntime` instalado no sistema.
 
@@ -90,9 +87,9 @@ gcc benchmark.c -o benchmark -lonnxruntime
 
 -----
 
-# 📄 Relatório do Projeto: Contexto e Resultados
+# 📄 Contexto e Resultados
 
-*O texto abaixo descreve a motivação, metodologia e conclusões obtidas durante o desenvolvimento deste projeto na disciplina de Inteligência Artificial Embarcada.*
+*O texto abaixo descreve brevemente motivação, metodologia e conclusões obtidas durante o desenvolvimento deste projeto na disciplina de Inteligência Artificial Embarcada.* **Para mais informações, confira o relatório final do trabalho**.
 
 ## 1\. Contexto e Motivação
 
